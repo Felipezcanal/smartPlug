@@ -1,0 +1,224 @@
+
+#include <ESP8266WiFi.h>
+#include <DNSServer.h>
+#include <ESP8266WebServer.h>
+#include <WiFiManager.h>          // https://github.com/tzapu/WiFiManager
+#include <EEPROM.h>
+#include <WiFiClientSecure.h>
+#include <ESP8266TelegramBOT.h>
+#include <Ticker.h>
+
+#define LED_VERDE 2
+#define RESET_BUTTON 13 //5
+#define LONG_RESET_TIME 6000
+#define SHORT_RESET_TIME 2000
+#define TOMADA_1 12 //4
+#define TOMADA_2 14 
+
+
+Ticker ticker;
+char output[45];
+bool shouldSaveConfig = false;
+
+TelegramBOT bot("", "", "");
+int Bot_mtbs = 1000; //mean time between scan messages
+long Bot_lasttime;   //last time messages' scan has been done
+
+//callback notifying us of the need to save config
+void saveConfigCallback () {
+  Serial.println("Should save config");
+  shouldSaveConfig = true;
+}
+
+int address = 0;
+
+void clearEEPROM(){
+  for (int i = 0 ; i < EEPROM.length() ; i++) {
+    if(EEPROM.read(i) != 0)                     //skip already "empty" addresses
+    {
+      EEPROM.write(i, 0);                       //write 0 to address i
+    }
+  }
+  Serial.println("EEPROM erased");
+  address = 0;                                  //reset address counter
+}
+
+void writeString(char add,String data){
+  int _size = data.length();
+  int i;
+  for(i=0;i<_size;i++)
+  {
+    EEPROM.write(add+i,data[i]);
+  }
+  EEPROM.write(add+_size,'\0');   //Add termination null character for String Data
+  EEPROM.commit();
+}
+ 
+ 
+String read_String(char add){
+  int i;
+  char data[100]; //Max 100 Bytes
+  int len=0;
+  unsigned char k;
+  k=EEPROM.read(add);
+  while(k != '\0' && len<500)   //Read until null character
+  {    
+    k=EEPROM.read(add+len);
+    data[len]=k;
+    len++;
+  }
+  data[len]='\0';
+  return String(data);
+}
+
+void tick(){
+  //toggle state
+  int state = digitalRead(LED_VERDE);  // get the current state of GPIO1 pin
+  digitalWrite(LED_VERDE, !state);     // set pin to the opposite state
+}
+
+void Bot_EchoMessages() {
+
+  for (int i = 1; i < bot.message[0][0].toInt() + 1; i++){
+//    bot.sendMessage(bot.message[i][4], bot.message[i][5], "");
+
+    String message = String(bot.message[i][5]);
+    message.trim();
+    message.toLowerCase();
+
+    if(message == "ligar tomada 1" || message == "on1" ||  message == "on 1" || message == "ligar 1" || message == "liga 1" || message == "ligar" || message == "on" || message == "liga"){
+      digitalWrite(TOMADA_1, HIGH);
+      bot.sendMessage(bot.message[i][4], "Tomada 1 ligada", "");
+      
+    }else if(message == "desligar tomada 1" || message == "off1" || message == "off 1" || message == "desligar 1" || message == "desliga 1" || message == "desligar" || message == "off" || message == "desliga"){
+      digitalWrite(TOMADA_1, LOW);
+      bot.sendMessage(bot.message[i][4], "Tomada 1 desligada", "");
+      
+    }else if(message == "ligar tomada 2" || message == "on2" || message == "on 2" || message == "ligar 2" || message == "liga 2"){
+      digitalWrite(TOMADA_2, HIGH);
+      bot.sendMessage(bot.message[i][4], "Tomada 2 ligada", "");
+      
+    }else if(message == "desligar tomada 2" || message == "off2" || message == "off 2" || message == "desligar 2" || message == "desliga 2"){
+      digitalWrite(TOMADA_2, LOW);
+      bot.sendMessage(bot.message[i][4], "Tomada 2 desligada", "");
+    
+      
+    }else if(message == "ligar todas" || message == "onall" || message == "on all" || message == "liga todas"){
+      digitalWrite(TOMADA_1, HIGH);
+      digitalWrite(TOMADA_2, HIGH);
+      bot.sendMessage(bot.message[i][4], "Todas as tomadas ligadas", "");
+      
+    }else if(message == "desligar todas" || message == "offall" || message == "off all" || message == "desliga todas"){
+      digitalWrite(TOMADA_1, LOW);
+      digitalWrite(TOMADA_2, LOW);
+      bot.sendMessage(bot.message[i][4], "Todas as tomadas desligadas", "");
+    }
+  }
+  bot.message[0][0] = "";   // All messages have been replied - reset new messages
+}
+
+void configModeCallback (WiFiManager *myWiFiManager) {
+  ticker.attach(0.2, tick);
+}
+void setup() {
+
+  pinMode(RESET_BUTTON, INPUT);
+  pinMode(LED_VERDE, OUTPUT);
+  pinMode(TOMADA_1, OUTPUT);
+  pinMode(TOMADA_2, OUTPUT);
+  
+  digitalWrite(TOMADA_1, LOW);
+  digitalWrite(TOMADA_2, LOW);
+  
+  ticker.attach(0.6, tick);
+  Serial.begin(115200);
+
+  
+
+  
+  EEPROM.begin(512);
+  
+  WiFiManagerParameter custom_output("API token", "API token", output, 45);
+  WiFiManager wifiManager;
+  wifiManager.setSaveConfigCallback(saveConfigCallback);
+  wifiManager.setAPCallback(configModeCallback);
+  wifiManager.addParameter(&custom_output);
+  
+  // Uncomment and run it once, if you want to erase all the stored information
+//  wifiManager.resetSettings();
+
+  wifiManager.autoConnect("ControleTomadas");
+  // if you get here you have connected to the WiFi
+  Serial.println("Connected.");
+  
+  ticker.detach();
+  digitalWrite(LED_VERDE, HIGH);
+  
+  strcpy(output, custom_output.getValue());
+  Serial.println(output);
+  if (shouldSaveConfig) {
+    clearEEPROM();
+    delay(1000);
+    Serial.println("saving config");
+    writeString(0, String(output));
+  }
+  
+  String key = read_String(0);
+  Serial.println(key);
+
+  
+  bot.initParams(key, "", "");
+
+  
+  bot.begin();
+}
+
+void restartBoard(){
+  
+  ticker.attach(0.6, tick);
+  long temp = millis();
+  
+  int resetPress = digitalRead(RESET_BUTTON);
+  while(resetPress == HIGH){
+    resetPress = digitalRead(RESET_BUTTON);
+    Serial.println(resetPress);
+    delay(300);
+  }
+  long tempo = millis() - temp;
+  Serial.print("Tempo pressionamento botao: ");
+  Serial.println(tempo);
+
+  if(tempo > LONG_RESET_TIME){ //longReset
+    Serial.println("longReset");
+    WiFi.disconnect();
+  }
+  else if (tempo > SHORT_RESET_TIME){//shortReset
+    Serial.println("short Reset");
+  }
+  delay(1000);
+  ticker.detach();
+  delay(500);
+  digitalWrite(LED_VERDE, HIGH);
+  delay(1000);
+  ESP.restart();
+  
+}
+
+void loop(){
+
+  int resetPress = digitalRead(RESET_BUTTON);
+  Serial.println(resetPress);
+  delay(500);
+
+  
+  if(resetPress == HIGH){
+    restartBoard();
+  }
+  
+
+  if (millis() > Bot_lasttime + Bot_mtbs)  {
+    bot.getUpdates(bot.message[0][1]);   // launch API GetUpdates up to xxx message
+    Bot_EchoMessages();   // reply to message with Echo
+    Bot_lasttime = millis();
+  }
+}
