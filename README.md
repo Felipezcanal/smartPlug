@@ -17,3 +17,7 @@ WiFiClientSecure.h: https://github.com/esp8266/Arduino/tree/master/libraries/ESP
 ESP8266TelegramBOT.h: https://github.com/Gianbacchio/ESP8266-TelegramBot
 
 Ticker.h: https://github.com/sstaub/Ticker
+
+
+Upload do código no ESP-12f
+https://www.hackster.io/brian-lough/3-simple-ways-of-programming-an-esp8266-12x-module-c514ee
